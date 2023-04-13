@@ -86,6 +86,19 @@ def get_all_users(current_user):
             output.append(user_data)
 
         return jsonify({'users' : output})
+@app.route('/user/<id>', methods=['PUT'])
+@token_required
+def update_user(current_user, id):
+    user = RegisteredUsers.query.filter_by(id=id).first()
+
+    if not user:
+        return jsonify({'message' : 'No user found!'})
+
+    user.admin = True
+    db.session.commit()
+
+    return jsonify({'message' : 'The user has been promoted!'})
+
 @app.route('/users/<id>', methods=['DELETE'])
 @token_required
 def delete_user(current_user, id):
