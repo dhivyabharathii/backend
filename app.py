@@ -5,19 +5,18 @@ from flask_bcrypt import Bcrypt
 import jwt
 import datetime
 from functools import wraps
-
+from dotenv import load_dotenv
+import os
+load_dotenv()
+Database_url=os.getenv('Database_url')
+secret=os.getenv('secret')
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = '5791628bb0b13ce0c676dfde280ba245'
-
-pg_user="postgres"
-pg_pwd="password"
-pg_port ="5432"
-app.config['SQLALCHEMY_DATABASE_URI']='postgresql://{username}:{password}@localhost:{port}/flaskk'.format(username=pg_user,password=pg_pwd,port=pg_port)
+app.config['SECRET_KEY'] =secret
+app.config['SQLALCHEMY_DATABASE_URI']= Database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS']=False
 db=SQLAlchemy(app)
 bcrypt = Bcrypt(app)
-
 
 class RegisteredUsers(db.Model):
     id=db.Column(db.Integer,primary_key=True)
@@ -45,6 +44,7 @@ def token_required(f):
         return f(current_user, *args, **kwargs)
 
     return decorated
+
 @app.route('/register', methods=['POST'])
 def register():
     
@@ -67,22 +67,16 @@ def register():
 @token_required
 def get_all_users(current_user):
 
-    if not current_user.admin:
-        
+    if not current_user.admin:        
         user_data = {}
         user_data['id'] = current_user.id
         user_data['username'] = current_user.username
         user_data['password'] = current_user.password
         user_data['admin'] = current_user.admin
-
         return jsonify({'user' : user_data})
     else:
-        
-
         users = RegisteredUsers.query.all()
-
         output = []
-
         for user in users:
             user_data = {}
             user_data['id'] = user.id
@@ -92,13 +86,25 @@ def get_all_users(current_user):
             output.append(user_data)
 
         return jsonify({'users' : output})
+@app.route('/users/<id>', methods=['DELETE'])
+@token_required
+def delete_user(current_user, id):
+    if not current_user.admin:
+        return jsonify({'message' : 'Cannot perform that function!'})
+
+    user = RegisteredUsers.query.filter_by(id=id).first()
+
+    if not user:
+        return jsonify({'message' : 'No user found!'})
+
+    db.session.delete(user)
+    db.session.commit()
+
+    return jsonify({'message' : 'The user has been deleted!'})
 
 
 @app.route('/login',methods=['GET','POST'])
 def login():
-    # auth=request.authorization
-    # if not auth or not auth.username or not auth.password:
-    #     return jsonify({'message': 'Invalid'})
     email = request.json['email']
     password = request.json['password']
     user = RegisteredUsers.query.filter_by(email=email).first()
@@ -109,9 +115,6 @@ def login():
         return jsonify({'token':token.decode('UTF-8')})
     else:
         return jsonify({'message': 'Invalid credentials!'})
-
-       
-    
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
