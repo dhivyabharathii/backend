@@ -22,12 +22,6 @@ db=SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 jwt=JWTManager(app)
 
-
-class Managers(db.Model):
-    manager_name = db.Column(db.String(50),nullable=False)
-    manager_id=db.Column(db.String(50),primary_key=True)
-    relate= db.relationship('RegisteredUsers', backref='managers', lazy=True)
-
 class RegisteredUsers(db.Model):
     id=db.Column(db.Integer,primary_key=True)
     username=db.Column(db.String(50),unique=True,nullable=False)
@@ -35,20 +29,8 @@ class RegisteredUsers(db.Model):
     password= db.Column(db.String(340),nullable=False)
     admin=db.Column(db.Boolean)
     role = db.Column(db.String(50))
-    manager_id=db.Column(db.String(50),db.ForeignKey('managers.manager_id'))
-@app.route('/join', methods=['GET'])
-def join():
-    posts = db.session.query(RegisteredUsers).join(Managers, RegisteredUsers.manager_id == Managers.manager_id).all()
-    post_list = []
-    for post in posts:
-        post_dict = {
-            'id': post.id,
-            'username': post.username,
-            'reports to': post.managers.manager_name
-        }
-        post_list.append(post_dict)
-    return jsonify(post_list)
-
+    manager_id=db.Column(db.Integer)
+    
 @app.route('/manager', methods=['POST'])
 @jwt_required()
 def manager():
@@ -56,7 +38,6 @@ def manager():
     manager_id=request.json['manager_id']
     manager = Manangers.query.filter_by(manager_id=manager_id).first()
     if current_user.admin:
-
         if manager:
             return jsonify({'message':'Manager ID exists'})
         else:
@@ -68,8 +49,7 @@ def manager():
         return jsonify({'message':'Not authorized'})
 
 @app.route('/register', methods=['POST'])
-def register():
-    
+def register():   
     username = request.json['username']
     email=request.json['email']
     password = request.json['password']
@@ -77,7 +57,6 @@ def register():
     user = RegisteredUsers.query.filter_by(email=email).first()
     if user:
         return jsonify({'message': 'User already exists!'})
-
     else:
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
         user = RegisteredUsers(username=username, email=email, password=hashed_password,admin=admin)
@@ -90,16 +69,6 @@ def register():
 def get_all_users():
     current_user_id = get_jwt_identity()
     current_user = RegisteredUsers.query.filter_by(id=current_user_id).first()
-
-
-    # if not current_user.admin:        
-    #     user_data = {}
-    #     user_data['id'] = current_user.id
-    #     user_data['username'] = current_user.username
-    #     user_data['password'] = current_user.password
-    #     user_data['admin'] = current_user.admin
-    #     return jsonify({'user' : user_data})
-    # else:
     users = RegisteredUsers.query.all()
     output_users = []
     for user in users:
@@ -109,8 +78,8 @@ def get_all_users():
         user_data['admin'] = user.admin
         user_data['manager_id'] = user.manager_id
         user_data['role'] = user.role
-
         output_users.append(user_data)
+
     managers = Managers.query.all()
     output_managers=[]
     for manager in managers:
@@ -118,41 +87,61 @@ def get_all_users():
         manager_data['manager_name'] =manager.manager_name
         manager_data['manager_id'] =manager.manager_id
         output_managers.append(manager_data)
-
     return jsonify({'users' : output_users,'managers':output_managers})
+@app.route('/search_users',methods=['POST'])
+def search_users():
+    role= request.json['role']
+    users=RegisteredUsers.query.filter_by(role=role).all()
+    output_users=[]
+    for user in users:
+        user_name={}
+        user_name['username'] = user.username        
+        output_users.append(user_name)
+    return jsonify({'users' : output_users})
+
+@app.route('/details',methods=['POST'])
+def display_details():
+    username = request.json['username']
+    users=RegisteredUsers.query.filter_by(username=username).all()
+    output_users=[]
+    for user in users:    
+        user_data = {}
+        user_data['id'] = user.id
+        user_data['username'] = user.username
+        user_data['admin'] = user.admin
+        user_data['manager_id'] = user.manager_id
+        user_data['role'] = user.role
+        if user.role=='manager':
+            reportees=RegisteredUsers.query.filter_by(manager_id=user.id).all()
+            for reportee in reportees:
+                user_name={}
+                user_name['reportees'] = reportee.username        
+                output_users.append(user_name)
+        output_users.append(user_data)
+    return jsonify({'users' : output_users})
+
+
 @app.route('/user/<id>', methods=['PUT','POST'])
 @jwt_required()
-def update_user(id):
+def update_userrole(id):
     current_user_id = get_jwt_identity()
     current_user = RegisteredUsers.query.filter_by(id=current_user_id).first()
     if current_user.admin:
         user = RegisteredUsers.query.filter_by(id=id).first()
         prev_role=user.role
-
         if not user:
             return jsonify({'message' : 'No user found!'})
-        # if user.role:
-        #     current_role=user.role
-        #     user.manager_id = request.json['manager_id']
-        #     user.role=request.json['role']
-        # db.session.commit()
-
-        user.manager_id = request.json['manager_id']
+        #user.manager_id = request.json['manager_id',None]
         user.role=request.json['role']
         db.session.commit()
-        if user.role=='manager':
-            manager_table_id=request.json['manager_id']
-            manager=Managers(manager_name=user.username,manager_id=manager_table_id)
-            db.session.add(manager)
+        if user.role=='manager' and prev_role=='employee':
+            user.manager_id=0
             db.session.commit()
             return jsonify({'message':'manager table updated'})
-        if prev_role=='manager':
-            manager_table_id=request.json['manager_id']
-            manager=Managers.query.filter_by(manager_id=manager_table_id)
-
-            db.session.delete(manager)
+        elif user.role=='employee' and prev_role=='manager':
+            user.manager_id=request.json['manager_employee_id']
             db.session.commit()
-            return jsonify({'message':'manager table updated-delete'})
+            return jsonify({'message':'manager to employee'})
         return jsonify({'message' : 'The user has been assigned with a Manager !'})
     return jsonify({'message':'You are not authorized!'})
 
@@ -161,27 +150,20 @@ def update_user(id):
 def delete_user():
     current_user_id = get_jwt_identity()
     current_user = RegisteredUsers.query.filter_by(id=current_user_id).first()
-
     if not current_user.admin:
         return jsonify({'message' : 'Cannot perform that function!'})
-
     user = RegisteredUsers.query.filter_by(id=id).first()
-
     if not user:
         return jsonify({'message' : 'No user found!'})
-
     db.session.delete(user)
     db.session.commit()
-
     return jsonify({'message' : 'The user has been deleted!'})
-
 
 @app.route('/login',methods=['GET','POST'])
 def login():
     email = request.json['email']
     password = request.json['password']
-    user = RegisteredUsers.query.filter_by(email=email).first()
-    
+    user = RegisteredUsers.query.filter_by(email=email).first()    
     if user and bcrypt.check_password_hash(user.password, password)  :
         access_token = create_access_token(identity=user.id)       
         return jsonify(access_token=access_token), 200
@@ -190,5 +172,4 @@ def login():
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-
     app.run(host='0.0.0.0',port=5000,debug=True)
