@@ -31,23 +31,6 @@ class RegisteredUsers(db.Model):
     role = db.Column(db.String(50))
     manager_id=db.Column(db.Integer)
     
-@app.route('/manager', methods=['POST'])
-@jwt_required()
-def manager():
-    manager_name=request.json['manager_name']
-    manager_id=request.json['manager_id']
-    manager = Manangers.query.filter_by(manager_id=manager_id).first()
-    if current_user.admin:
-        if manager:
-            return jsonify({'message':'Manager ID exists'})
-        else:
-            manager = Managers(manager_name=manager_name,manager_id=manager_id)
-            db.session.add(manager)
-            db.session.commit()
-            return jsonify({'message':'manager_id Added'})
-    else:
-        return jsonify({'message':'Not authorized'})
-
 @app.route('/register', methods=['POST'])
 def register():   
     username = request.json['username']
@@ -117,6 +100,10 @@ def display_details():
                 user_name={}
                 user_name['reportees'] = reportee.username        
                 output_users.append(user_name)
+        elif user.role=='employee':
+            reportees=RegisteredUsers.query.filter_by(id=user.manager_id).first()
+            output_users.append({'reports_t0':reportees.username})
+        
         output_users.append(user_data)
     return jsonify({'users' : output_users})
 
@@ -131,16 +118,19 @@ def update_userrole(id):
         prev_role=user.role
         if not user:
             return jsonify({'message' : 'No user found!'})
-        #user.manager_id = request.json['manager_id',None]
         user.role=request.json['role']
         db.session.commit()
         if user.role=='manager' and prev_role=='employee':
             user.manager_id=0
             db.session.commit()
-            return jsonify({'message':'manager table updated'})
+            return jsonify({'message':' table updated'})
         elif user.role=='employee' and prev_role=='manager':
             user.manager_id=request.json['manager_employee_id']
             db.session.commit()
+            employees=RegisteredUsers.query.filter_by(manager_id=user.id).all()
+            for employee in employees:
+                employee.manager_id=None
+                db.session.commit()
             return jsonify({'message':'manager to employee'})
         return jsonify({'message' : 'The user has been assigned with a Manager !'})
     return jsonify({'message':'You are not authorized!'})
