@@ -13,8 +13,8 @@ Database_url=os.getenv('Database_url')
 secret=os.getenv('secret')
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] =secret
-app.config['SQLALCHEMY_DATABASE_URI']= Databasr_url
+app.config['SECRET_KEY']='5791628bb0b13ce0c676dfde280ba245'
+app.config['SQLALCHEMY_DATABASE_URI']='postgresql://postgres:password@localhost:5432/flaskk'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS']=False
 app.config['JWT_SECRET_KEY'] = 'super-secret'
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = 3600
@@ -24,14 +24,15 @@ jwt=JWTManager(app)
 
 class RegisteredUsers(db.Model):
     id=db.Column(db.Integer,primary_key=True)
-    username=db.Column(db.String(50),unique=True,nullable=False)
+    username=db.Column(db.String(50),nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password= db.Column(db.String(340),nullable=False)
     admin=db.Column(db.Boolean)
     role = db.Column(db.String(50))
-    manager_id=db.Column(db.Integer)
+    manager_id=db.Column(db.Integer,db.ForeignKey('registered_users.id'))
     
 @app.route('/register', methods=['POST'])
+@jwt_required()
 def register():   
     username = request.json['username']
     email=request.json['email']
@@ -62,15 +63,6 @@ def get_all_users():
         user_data['manager_id'] = user.manager_id
         user_data['role'] = user.role
         output_users.append(user_data)
-
-    managers = Managers.query.all()
-    output_managers=[]
-    for manager in managers:
-        manager_data = {}
-        manager_data['manager_name'] =manager.manager_name
-        manager_data['manager_id'] =manager.manager_id
-        output_managers.append(manager_data)
-    return jsonify({'users' : output_users,'managers':output_managers})
 @app.route('/search_users',methods=['POST'])
 def search_users():
     role= request.json['role']
@@ -78,7 +70,8 @@ def search_users():
     output_users=[]
     for user in users:
         user_name={}
-        user_name['username'] = user.username        
+        user_name['username'] = user.username
+        user_name['id']=user.id        
         output_users.append(user_name)
     return jsonify({'users' : output_users})
 
@@ -105,7 +98,7 @@ def display_details():
             output_users.append({'reports_t0':reportees.username})
         
         output_users.append(user_data)
-    return jsonify({'users' : output_users})
+    return jsonify(users=output_users)
 
 
 @app.route('/user/<id>', methods=['PUT','POST'])
@@ -125,6 +118,9 @@ def update_userrole(id):
             db.session.commit()
             return jsonify({'message':' table updated'})
         elif user.role=='employee' and prev_role=='manager':
+            # managers=search_users(user.role)
+            # print(managers)
+            user = RegisteredUsers.query.filter_by(id=id).all()           
             user.manager_id=request.json['manager_employee_id']
             db.session.commit()
             employees=RegisteredUsers.query.filter_by(manager_id=user.id).all()
