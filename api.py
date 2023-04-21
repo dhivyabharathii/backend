@@ -8,6 +8,8 @@ from flask_jwt_extended import JWTManager, jwt_required, create_access_token,get
 from functools import wraps
 from dotenv import load_dotenv
 import os
+
+
 load_dotenv()
 Database_url=os.getenv('Database_url')
 secret=os.getenv('secret')
@@ -33,24 +35,28 @@ class RegisteredUsers(db.Model):
     
 @app.route('/register', methods=['POST'])
 @jwt_required()
-def register():   
-    username = request.json['username']
-    email=request.json['email']
-    password = request.json['password']
-    admin=request.json['admin']
-    user = RegisteredUsers.query.filter_by(email=email).first()
-    if user:
-        return jsonify({'message': 'User already exists!'})
-    else:
-        hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-        user = RegisteredUsers(username=username, email=email, password=hashed_password,admin=admin)
-        db.session.add(user)
-        db.session.commit()
-        return jsonify({'message': 'User registered successfully!'})
+def register(): #to add users in db only by admin
+    current_user_id = get_jwt_identity()
+    current_user = RegisteredUsers.query.filter_by(id=current_user_id).first()
+    if current_user.admin:  
+        username = request.json['username']
+        email=request.json['email']
+        password = request.json['password']
+        admin=request.json['admin']
+        user = RegisteredUsers.query.filter_by(email=email).first()
+        if user:
+            return jsonify({'message': 'User already exists!'})
+        else:
+            hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+            user = RegisteredUsers(username=username, email=email, password=hashed_password,admin=admin)
+            db.session.add(user)
+            db.session.commit()
+            return jsonify({'message': 'User registered successfully!'})
+    return jsonify({'message':'Not authorized'})
 
 @app.route('/user', methods=['GET'])
 @jwt_required()
-def get_all_users():
+def get_all_users():#to view all users in table
     current_user_id = get_jwt_identity()
     current_user = RegisteredUsers.query.filter_by(id=current_user_id).first()
     users = RegisteredUsers.query.all()
@@ -63,8 +69,9 @@ def get_all_users():
         user_data['manager_id'] = user.manager_id
         user_data['role'] = user.role
         output_users.append(user_data)
+    return jsonify({'users':output_users})
 @app.route('/search_users',methods=['POST'])
-def search_users():
+def search_users():#to search all users under particular role
     role= request.json['role']
     users=RegisteredUsers.query.filter_by(role=role).all()
     output_users=[]
@@ -76,7 +83,7 @@ def search_users():
     return jsonify({'users' : output_users})
 
 @app.route('/details',methods=['POST'])
-def display_details():
+def display_details():#to display details of a particular person
     username = request.json['username']
     users=RegisteredUsers.query.filter_by(username=username).all()
     output_users=[]
@@ -89,11 +96,11 @@ def display_details():
         user_data['role'] = user.role
         if user.role=='manager':
             reportees=RegisteredUsers.query.filter_by(manager_id=user.id).all()
-            for reportee in reportees:
+            for reportee in reportees:#to show employees reporting to this manager
                 user_name={}
                 user_name['reportees'] = reportee.username        
                 output_users.append(user_name)
-        elif user.role=='employee':
+        elif user.role=='employee':#shows the manager name (the employee reportimg to) 
             reportees=RegisteredUsers.query.filter_by(id=user.manager_id).first()
             output_users.append({'reports_t0':reportees.username})
         
@@ -103,7 +110,7 @@ def display_details():
 
 @app.route('/user/<id>', methods=['PUT','POST'])
 @jwt_required()
-def update_userrole(id):
+def update_userrole(id):#to update user role (promote,demote,assign role)
     current_user_id = get_jwt_identity()
     current_user = RegisteredUsers.query.filter_by(id=current_user_id).first()
     if current_user.admin:
@@ -113,14 +120,13 @@ def update_userrole(id):
             return jsonify({'message' : 'No user found!'})
         user.role=request.json['role']
         db.session.commit()
-        if user.role=='manager' and prev_role=='employee':
+        if user.role=='manager' and prev_role=='employee':#promote
             user.manager_id=0
             db.session.commit()
             return jsonify({'message':' table updated'})
-        elif user.role=='employee' and prev_role=='manager':
-            # managers=search_users(user.role)
-            # print(managers)
-            user = RegisteredUsers.query.filter_by(id=id).all()           
+        elif user.role=='employee' and prev_role=='manager':#demote
+            user = RegisteredUsers.query.filter_by(id=id).all() 
+            #to assign manager id we have find the list of managers.In search_users route we can find list of managers          
             user.manager_id=request.json['manager_employee_id']
             db.session.commit()
             employees=RegisteredUsers.query.filter_by(manager_id=user.id).all()
@@ -133,7 +139,7 @@ def update_userrole(id):
 
 @app.route('/users/<id>', methods=['DELETE'])
 @jwt_required()
-def delete_user():
+def delete_user():#to delete particular user
     current_user_id = get_jwt_identity()
     current_user = RegisteredUsers.query.filter_by(id=current_user_id).first()
     if not current_user.admin:
